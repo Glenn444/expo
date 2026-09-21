@@ -113,6 +113,14 @@ struct DevMenuFABView: View {
 
   private let fabSize = CGSize(width: 72, height: FABConstants.iconSize + 50)
 
+  /// The drawn button is centred in the touch frame, so clamps track the button, not the frame.
+  private var visibleOffset: CGSize {
+    CGSize(
+      width: (fabSize.width - FABConstants.iconSize) / 2,
+      height: (fabSize.height - FABConstants.iconSize) / 2
+    )
+  }
+
   // UserDefaults keys for persisting position
   private static let positionXKey = "DevMenuFAB.positionX"
   private static let positionYKey = "DevMenuFAB.positionY"
@@ -236,15 +244,10 @@ struct DevMenuFABView: View {
   private func placeInitially(bounds: CGSize, safeArea: EdgeInsets) {
     let initialPos: CGPoint
     if let storedPos = Self.loadStoredPosition() {
-      let margin = FABConstants.margin
-      let minX = margin / 2
-      let maxX = bounds.width - fabSize.width - margin / 2
-      let minY = safeArea.top + FABConstants.verticalPadding
-      let maxY = bounds.height - fabSize.height - safeArea.bottom - FABConstants.verticalPadding
-
+      let ranges = placementRanges(bounds: bounds, safeArea: safeArea)
       initialPos = CGPoint(
-        x: storedPos.x.clamped(to: minX...maxX),
-        y: storedPos.y.clamped(to: minY...maxY)
+        x: storedPos.x.clamped(to: ranges.x),
+        y: storedPos.y.clamped(to: ranges.y)
       )
     } else {
       initialPos = defaultPosition(bounds: bounds, safeArea: safeArea)
@@ -258,11 +261,23 @@ struct DevMenuFABView: View {
     }
   }
 
+  private func placementRanges(
+    bounds: CGSize,
+    safeArea: EdgeInsets
+  ) -> (x: ClosedRange<CGFloat>, y: ClosedRange<CGFloat>) {
+    // Keep `inset` from each edge, but never sit further in than the safe area already requires.
+    let inset = FABConstants.margin
+    let icon = FABConstants.iconSize
+    let minX = max(safeArea.leading, inset) - visibleOffset.width
+    let maxX = bounds.width - max(safeArea.trailing, inset) - icon - visibleOffset.width
+    let minY = max(safeArea.top, inset) - visibleOffset.height
+    let maxY = bounds.height - max(safeArea.bottom, inset) - icon - visibleOffset.height
+    return (min(minX, maxX)...max(minX, maxX), min(minY, maxY)...max(minY, maxY))
+  }
+
   private func defaultPosition(bounds: CGSize, safeArea: EdgeInsets) -> CGPoint {
-    CGPoint(
-      x: bounds.width - fabSize.width - FABConstants.margin / 2,
-      y: safeArea.top + FABConstants.verticalPadding
-    )
+    let ranges = placementRanges(bounds: bounds, safeArea: safeArea)
+    return CGPoint(x: ranges.x.upperBound, y: ranges.y.lowerBound)
   }
 
   private func snapToEdge(
@@ -271,19 +286,13 @@ struct DevMenuFABView: View {
     bounds: CGSize,
     safeArea: EdgeInsets
   ) -> CGPoint {
-    let margin = FABConstants.margin
-    let edgeMargin = margin / 2  // Closer to screen edge when snapped
     let momentumX = velocity.x * FABConstants.momentumFactor
     let momentumY = velocity.y * FABConstants.momentumFactor
+    let ranges = placementRanges(bounds: bounds, safeArea: safeArea)
 
     let estimatedCenterX = point.x + self.fabSize.width / 2 + momentumX
-    let targetX: CGFloat = estimatedCenterX < bounds.width / 2
-      ? edgeMargin
-    : bounds.width - self.fabSize.width - edgeMargin
-
-    let minY = safeArea.top + FABConstants.verticalPadding
-    let maxY = bounds.height - self.fabSize.height - safeArea.bottom - FABConstants.verticalPadding
-    let targetY = (point.y + momentumY).clamped(to: minY...maxY)
+    let targetX = estimatedCenterX < bounds.width / 2 ? ranges.x.lowerBound : ranges.x.upperBound
+    let targetY = (point.y + momentumY).clamped(to: ranges.y)
 
     return CGPoint(x: targetX, y: targetY)
   }
